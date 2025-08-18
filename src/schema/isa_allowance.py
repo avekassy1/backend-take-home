@@ -26,3 +26,11 @@ class TotalLimit(BaseModel):
 class IsaAllowance(BaseModel):
     annual_allowance: Decimal
     remaining_allowance: Decimal
+
+class NegativeBalanceError(Exception):
+    """Exception raised when an ISA account balance goes negative."""
+
+    def __init__(self, balance, message="Account balance cannot go negative"):
+        self.balance = balance
+        self.message = message
+        super().__init__(f"{message}: Balance is {balance}")
