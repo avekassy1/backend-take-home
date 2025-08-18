@@ -4,7 +4,6 @@ from decimal import Decimal
 from pydantic import BaseModel
 import datetime as dt
 
-
 class AccountType(enum.Enum):
     ISA = enum.auto()  # non-flexible
     Flexible_ISA = enum.auto()
