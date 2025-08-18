@@ -22,13 +22,13 @@ class TestIsaAllowanceCalculator(TestCase):
         transactions = [
             Transaction(account=self.account, amount=Decimal(5_000), transaction_date=dt.date(2024, 5, 10)),
             Transaction(account=self.account, amount=Decimal(10_000), transaction_date=dt.date(2024, 5, 10)),
-            Transaction(account=self.account, amount=Decimal(-10_000), transaction_date=dt.date(2024, 5, 10)), # should be ignored
+            Transaction(account=self.account, amount=Decimal(-10_000), transaction_date=dt.date(2024, 5, 10)), # Does not restore allowance
             Transaction(account=self.account, amount=Decimal(9_250), transaction_date=dt.date(2021, 5, 10)), # should be ignored
             Transaction(account=self.other_account, amount=Decimal(9_250), transaction_date=dt.date(2024, 5, 10)), # should be ignored
             # What happened to type validation here?
             # Transaction(account=account, amount=int(8), transaction_date=dt.date(2021, 5, 10)),
         ]
-        allowance = calculate_isa_allowance_for_account(account=self.account, transactions=transactions, tax_year=2024)
+        allowance = calculate_isa_allowance_for_account(client_id=1, transactions=transactions, tax_year=2024)
         assert allowance.annual_allowance == Decimal(20_000)
         assert allowance.remaining_allowance == Decimal(5_000)
 
@@ -36,8 +36,8 @@ class TestIsaAllowanceCalculator(TestCase):
         transactions = [
             Transaction(account=self.account, amount=Decimal(21_000), transaction_date=dt.date(2024, 5, 10)),
         ]
-        allowance = calculate_isa_allowance_for_account(account=self.account, transactions=transactions, tax_year=2024)
+        allowance = calculate_isa_allowance_for_account(client_id=1, transactions=transactions, tax_year=2024)
         assert allowance.annual_allowance == Decimal(20_000)
         assert allowance.remaining_allowance == Decimal(0)
 
-    # TODO: Error cases for account creation?
+    # TODO: Error cases for account creation? For invalid dates? Not implemented tax year?

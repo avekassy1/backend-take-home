@@ -9,7 +9,7 @@ from ..schema.isa_allowance import (
 IsaLimitMapping = Dict[AccountType, Decimal]
 
 def calculate_isa_allowance_for_account(
-    account: Account,
+    client_id: int, # TODO - enable multiple accounts or change and have client id
     transactions: List[Transaction],
     tax_year: int = 2024,
 ) -> IsaAllowance:
@@ -22,35 +22,42 @@ def calculate_isa_allowance_for_account(
     TY_START_DATE: date = date(tax_year, 4, 6)
     TY_END_DATE: date = date(tax_year + 1, 4, 5)
 
-    annual_allowance: Decimal = isa_limits.get(account.account_type)
-    total_amount_invested: Decimal = 0 # This looks logically bad
+    annual_isa_allowance: Decimal = isa_limits.get(AccountType.ISA)
+    # annual_lifetime_isa_allowance - will come at Step 4
+    
+    client_transactions = [
+        txn for txn in transactions
+        if (TY_START_DATE < txn.transaction_date < TY_END_DATE 
+            and txn.account.client_id == client_id)
+    ]
+    client_transactions.sort(key=lambda t: t.transaction_date)
 
-    # Qs: Is for loop the most efficient way here?
-    for transaction in transactions:
-        ##### Generic Filtering #####
-        if not (TY_START_DATE < transaction.transaction_date < TY_END_DATE):
-            continue
-        if (transaction.account != account):
-            continue
+    balance: Decimal = 0
+    total_contributions: Decimal = 0
+
+    for transaction in client_transactions:
         invested_amount: Decimal = transaction.amount
-        if (total_amount_invested + invested_amount  < 0):
-            raise NegativeBalanceError(total_amount_invested + invested_amount)
+        account_type: AccountType = transaction.account.account_type
+
+        if (balance + invested_amount  < 0):
+            raise NegativeBalanceError(balance + invested_amount)
             
         ##### Calculating Remaining Allowance #####
         # TODO: replace if-else cavalcade with factory pattern - what if new AccountType is added
-        match account.account_type:
+        match account_type:
             case AccountType.ISA:
                 if (invested_amount > 0):
-                    total_amount_invested += invested_amount
+                    total_contributions += invested_amount
             case AccountType.Flexible_ISA:
-                total_amount_invested += invested_amount
+                total_contributions += invested_amount
             case AccountType.Flexible_Lifetime_ISA:
                 raise NotImplementedError
 
+        balance += invested_amount
 
     return IsaAllowance(
-        annual_allowance=annual_allowance,
-        remaining_allowance=max(0, annual_allowance - total_amount_invested)
+        annual_allowance=annual_isa_allowance,
+        remaining_allowance=max(0, annual_isa_allowance - total_contributions)
     )
 
 
@@ -59,7 +66,7 @@ def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
     Get the ISA limits for different account types in a specific tax year.
     """
 
-    # TODO: make this extendible + write tests
+    # TODO: make this extendible (HashMap -> dict in python) + write tests
     if tax_year == 2024:
         return {
             AccountType.Flexible_ISA: Decimal("20_000.00"),
