@@ -35,25 +35,21 @@ def calculate_isa_allowance_for_account(
 
         account_type = transaction.account.account_type
         if account_type not in calculators:
-            calculator_clazz = ISA_CALCULATOR_DISPATCHER.get(account_type)
-            if calculator_clazz is None:
-                raise NotImplementedError(f"No calculator implemented for account type: {account_type}")
-            calculators[account_type] = calculator_clazz(isa_limits)
+            addCalculatorWithIsaLimits(isa_limits, calculators, account_type)
         
         calculators[account_type].process_transaction(transaction)
     
-    total_contributions = sum(calc.total_contributions for calc in calculators.values())
-    print("Total contributions: ", total_contributions)
+    total_used_allowances = sum(calc.total_contributions for calc in calculators.values())
+    print("Total used allowances: ", total_used_allowances)
 
     return IsaAllowance(
         annual_allowance=annual_isa_allowance,
-        remaining_allowance=max(Decimal(0), annual_isa_allowance - total_contributions)
+        remaining_allowance=max(Decimal(0), annual_isa_allowance - total_used_allowances)
     )
 
 class IsaAllowanceCalculator(ABC):
     def __init__(self, isa_limit_mappings: IsaLimitMapping):
         self.total_contributions = Decimal(0)
-        self.flexible_contributions = Decimal(0)
         self.annual_isa_allowance = isa_limit_mappings.get(AccountType.ISA)
         self.INITIAL_LIFETIME_ALLOWANCE = isa_limit_mappings.get(AccountType.Flexible_Lifetime_ISA)
         self.remaining_lifetime_isa_allowance = self.INITIAL_LIFETIME_ALLOWANCE
@@ -65,7 +61,6 @@ class IsaAllowanceCalculator(ABC):
             raise NegativeBalanceError(self.balance + invested_amount)
         
         self.update_contributions(transaction)
-        self.balance += invested_amount
         print(f"Calc's balance: {self.balance}\n")
 
     @abstractmethod
@@ -81,53 +76,65 @@ class IsaAllowanceCalculator(ABC):
     
 class NonFlexibleIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
+        self.balance += transaction.amount
         if transaction.amount > 0:
             self.total_contributions += transaction.amount
-        print(f"NON FLEXIBLE ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
-
+        print(
+            f"NON FLEXIBLE ISA. Allowance usage: {self.total_contributions}, "
+            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+        )
 class FlexibleIsaCalculator(IsaAllowanceCalculator):
+    # Should be updated the same way as FlexibleLifetimeIsaCalculator but with different limits -> polymorphism
     def update_contributions(self, transaction: Transaction):
         self.total_contributions += transaction.amount
-        if transaction.amount > 0:
-            self.flexible_contributions += transaction.amount
-        print(f"FLEXIBLE ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
+        self.balance += transaction.amount
+        print(
+            f"FLEXIBLE ISA. Allowance usage: {self.total_contributions}, "
+            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+        )
 
 class FlexibleLifetimeIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
-        amount = transaction.amount
-
-        self.flexible_contributions += amount
+        self.balance += transaction.amount
         
-        if amount > 0:
+        if transaction.amount > 0:
             # Investment
             allowed = min(transaction.amount, self.remaining_lifetime_isa_allowance)
             self.remaining_lifetime_isa_allowance -= allowed
             self.total_contributions += allowed
         else:
-            # Withdrawal
-            non_tax_free_amount: Decimal = max(0, self.balance - self.INITIAL_LIFETIME_ALLOWANCE)
-            restored = min(abs(amount), self.INITIAL_LIFETIME_ALLOWANCE - self.remaining_lifetime_isa_allowance) - non_tax_free_amount
+            # Withdrawal : -1k
+            if (self.balance < self.INITIAL_LIFETIME_ALLOWANCE):
+                self.total_contributions = self.balance
+                self.remaining_lifetime_isa_allowance = self.INITIAL_LIFETIME_ALLOWANCE - self.balance
 
-            self.remaining_lifetime_isa_allowance += restored
-            self.total_contributions -= restored
 
-        print(f"LIFETIME ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
+        print(
+            f"LIFETIME ISA. Allowance usage: {self.total_contributions}, "
+            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+        )
 
 def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
     """
     Get the ISA limits for different account types in a specific tax year.
     """
 
-    # TODO: make this extendible (HashMap -> dict in python) + write tests
     if tax_year == 2024:
         return {
             AccountType.Flexible_ISA: Decimal("20_000.00"),
             AccountType.ISA: Decimal("20_000.00"),
-            AccountType.Flexible_Lifetime_ISA: Decimal("4_000.00")
+            AccountType.Flexible_Lifetime_ISA: Decimal("4_000.00"),
+            AccountType.Custom_ISA: Decimal("8_000"),
         }
     else:
         raise NotImplementedError(f"ISA limits not defined for the tax year: {tax_year}")
-    
+
+def addCalculatorWithIsaLimits(isa_limits, calculators, account_type):
+    calculator_clazz = ISA_CALCULATOR_DISPATCHER.get(account_type)
+    if calculator_clazz is None:
+        raise NotImplementedError(f"No calculator implemented for account type: {account_type}")
+    calculators[account_type] = calculator_clazz(isa_limits)
+
 def filter_transactions_by_tax_year_and_client_id(client_id, transactions, TY_START_DATE, TY_END_DATE):
     client_transactions = [
         txn for txn in transactions
@@ -162,7 +169,7 @@ Left this in case we'd like to discuss design choices and how I refactored the c
     #     ##### Calculating Remaining Allowance #####
     #     account_type: AccountType = transaction.account.account_type
     #     calculator: BaseIsaCalculator = get_isa_account_calculator(account_type)
-    #     # TODO - variables are passed down too many times, refactor as a Calculator object
+    #     # Code smell: variables are passed down too many times, refactor as a Calculator object
     #     total_contributions, flexible_contributions, remaining_lifetime_isa_allowance = calculator.update_total_contributions(total_contributions, flexible_contributions, transaction, remaining_lifetime_isa_allowance)
     #     balance += invested_amount
 

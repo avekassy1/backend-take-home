@@ -8,6 +8,8 @@ class AccountType(enum.Enum):
     ISA = enum.auto()  # non-flexible
     Flexible_ISA = enum.auto()
     Flexible_Lifetime_ISA = enum.auto()
+    Custom_ISA = enum.auto()
+    Not_Implemented_ISA = enum.auto()
 
 class Account(BaseModel):
     id: int
