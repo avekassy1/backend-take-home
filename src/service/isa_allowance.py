@@ -4,10 +4,14 @@ from decimal import Decimal
 from datetime import date
 
 from ..schema.isa_allowance import (
-    AccountType, IsaAllowance, NegativeBalanceError, Transaction
+    AccountType,
+    IsaAllowance,
+    NegativeBalanceError,
+    Transaction,
 )
 
 IsaLimitMapping = Dict[AccountType, Decimal]
+
 
 def calculate_isa_allowance_for_account(
     client_id: int,
@@ -23,43 +27,54 @@ def calculate_isa_allowance_for_account(
 
     isa_limits: IsaLimitMapping = get_isa_limits_for_tax_year(tax_year)
     annual_isa_allowance: Decimal = isa_limits.get(AccountType.ISA)
-    # annual_flexible_isa_allowance: Decimal = isa_limits.get(AccountType.Flexible_Lifetime_ISA) 
-    # remaining_lifetime_isa_allowance: Decimal = annual_flexible_isa_allowance
-    
-    client_transactions = filter_transactions_by_tax_year_and_client_id(client_id, transactions, TAX_YEAR_START_DATE, TAX_YEAR_END_DATE)
+
+    client_transactions = filter_transactions_by_tax_year_and_client_id(
+        client_id, transactions, TAX_YEAR_START_DATE, TAX_YEAR_END_DATE
+    )
     client_transactions.sort(key=lambda t: t.transaction_date)
 
     calculators: Dict[AccountType, IsaAllowanceCalculator] = {}
 
     for transaction in client_transactions:
-
         account_type = transaction.account.account_type
         if account_type not in calculators:
             addCalculatorWithIsaLimits(isa_limits, calculators, account_type)
-        
+
         calculators[account_type].process_transaction(transaction)
-    
-    total_used_allowances = sum(calc.total_contributions for calc in calculators.values())
+
+    total_used_allowances = sum(
+        calc.total_contributions for calc in calculators.values()
+    )
     print("Total used allowances: ", total_used_allowances)
 
     return IsaAllowance(
         annual_allowance=annual_isa_allowance,
-        remaining_allowance=max(Decimal(0), annual_isa_allowance - total_used_allowances)
+        remaining_allowance=max(
+            Decimal(0), annual_isa_allowance - total_used_allowances
+        ),
     )
 
+
 class IsaAllowanceCalculator(ABC):
-    def __init__(self, isa_limit_mappings: IsaLimitMapping):
+    def __init__(self, isa_limits: IsaLimitMapping):
         self.total_contributions = Decimal(0)
-        self.annual_isa_allowance = isa_limit_mappings.get(AccountType.ISA)
-        self.INITIAL_LIFETIME_ALLOWANCE = isa_limit_mappings.get(AccountType.Flexible_Lifetime_ISA)
-        self.remaining_lifetime_isa_allowance = self.INITIAL_LIFETIME_ALLOWANCE
         self.balance = Decimal(0)
+
+        # TODO - synchronise limits across calculators
+        self.isa_limits: IsaLimitMapping = isa_limits
+        self.isa_usage: IsaLimitMapping = isa_limits  # set all values to zero
+
+        self.annual_isa_allowance = isa_limits.get(AccountType.ISA)
+        self.INITIAL_LIFETIME_ALLOWANCE = isa_limits.get(
+            AccountType.Flexible_Lifetime_ISA
+        )  # this is stored in isa_limits
+        self.remaining_lifetime_isa_allowance = self.INITIAL_LIFETIME_ALLOWANCE
 
     def process_transaction(self, transaction: Transaction):
         invested_amount = transaction.amount
         if self.balance + invested_amount < 0:
             raise NegativeBalanceError(self.balance + invested_amount)
-        
+
         self.update_contributions(transaction)
         print(f"Calc's balance: {self.balance}\n")
 
@@ -67,13 +82,16 @@ class IsaAllowanceCalculator(ABC):
     def update_contributions(self, transaction: Transaction):
         pass
 
+    # TODO - unused? Use vulture
     def get_allowance(self) -> IsaAllowance:
-        remaining = max(Decimal(0), self.annual_isa_allowance - self.total_contributions)
-        return IsaAllowance(
-            annual_allowance=self.annual_isa_allowance,
-            remaining_allowance=remaining
+        remaining = max(
+            Decimal(0), self.annual_isa_allowance - self.total_contributions
         )
-    
+        return IsaAllowance(
+            annual_allowance=self.annual_isa_allowance, remaining_allowance=remaining
+        )
+
+
 class NonFlexibleIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
         self.balance += transaction.amount
@@ -83,6 +101,8 @@ class NonFlexibleIsaCalculator(IsaAllowanceCalculator):
             f"NON FLEXIBLE ISA. Allowance usage: {self.total_contributions}, "
             f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
         )
+
+
 class FlexibleIsaCalculator(IsaAllowanceCalculator):
     # Should be updated the same way as FlexibleLifetimeIsaCalculator but with different limits -> polymorphism
     def update_contributions(self, transaction: Transaction):
@@ -93,10 +113,11 @@ class FlexibleIsaCalculator(IsaAllowanceCalculator):
             f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
         )
 
+
 class FlexibleLifetimeIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
         self.balance += transaction.amount
-        
+
         if transaction.amount > 0:
             # Investment
             allowed = min(transaction.amount, self.remaining_lifetime_isa_allowance)
@@ -104,15 +125,17 @@ class FlexibleLifetimeIsaCalculator(IsaAllowanceCalculator):
             self.total_contributions += allowed
         else:
             # Withdrawal : -1k
-            if (self.balance < self.INITIAL_LIFETIME_ALLOWANCE):
+            if self.balance < self.INITIAL_LIFETIME_ALLOWANCE:
                 self.total_contributions = self.balance
-                self.remaining_lifetime_isa_allowance = self.INITIAL_LIFETIME_ALLOWANCE - self.balance
-
+                self.remaining_lifetime_isa_allowance = (
+                    self.INITIAL_LIFETIME_ALLOWANCE - self.balance
+                )
 
         print(
             f"LIFETIME ISA. Allowance usage: {self.total_contributions}, "
             f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
         )
+
 
 def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
     """
@@ -127,21 +150,33 @@ def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
             AccountType.Custom_ISA: Decimal("8_000"),
         }
     else:
-        raise NotImplementedError(f"ISA limits not defined for the tax year: {tax_year}")
+        raise NotImplementedError(
+            f"ISA limits not defined for the tax year: {tax_year}"
+        )
+
 
 def addCalculatorWithIsaLimits(isa_limits, calculators, account_type):
     calculator_clazz = ISA_CALCULATOR_DISPATCHER.get(account_type)
     if calculator_clazz is None:
-        raise NotImplementedError(f"No calculator implemented for account type: {account_type}")
+        raise NotImplementedError(
+            f"No calculator implemented for account type: {account_type}"
+        )
     calculators[account_type] = calculator_clazz(isa_limits)
 
-def filter_transactions_by_tax_year_and_client_id(client_id, transactions, TY_START_DATE, TY_END_DATE):
+
+def filter_transactions_by_tax_year_and_client_id(
+    client_id, transactions, TY_START_DATE, TY_END_DATE
+):
     client_transactions = [
-        txn for txn in transactions
-        if (TY_START_DATE < txn.transaction_date < TY_END_DATE 
-            and txn.account.client_id == client_id)
+        txn
+        for txn in transactions
+        if (
+            TY_START_DATE < txn.transaction_date < TY_END_DATE
+            and txn.account.client_id == client_id
+        )
     ]
     return client_transactions
+
 
 # Dispatcher is easily extendible with new account types and corresponding IsaCalculators
 ISA_CALCULATOR_DISPATCHER = {
@@ -151,39 +186,38 @@ ISA_CALCULATOR_DISPATCHER = {
 }
 
 
-
 #################### CODE CEMETARY ####################
 """ NOTE fore reviewer
 Left this in case we'd like to discuss design choices and how I refactored the code as the requirements become more complex
 """
 
-    # balance: Decimal = 0
-    # total_contributions: Decimal = 0
-    # flexible_contributions: Decimal = 0
+# balance: Decimal = 0
+# total_contributions: Decimal = 0
+# flexible_contributions: Decimal = 0
 
-    #     invested_amount: Decimal = transaction.amount # Can be negative -> withdrawal
+#     invested_amount: Decimal = transaction.amount # Can be negative -> withdrawal
 
-    #     if (balance + invested_amount  < 0):
-    #         raise NegativeBalanceError(balance + invested_amount)
-        
-    #     ##### Calculating Remaining Allowance #####
-    #     account_type: AccountType = transaction.account.account_type
-    #     calculator: BaseIsaCalculator = get_isa_account_calculator(account_type)
-    #     # Code smell: variables are passed down too many times, refactor as a Calculator object
-    #     total_contributions, flexible_contributions, remaining_lifetime_isa_allowance = calculator.update_total_contributions(total_contributions, flexible_contributions, transaction, remaining_lifetime_isa_allowance)
-    #     balance += invested_amount
+#     if (balance + invested_amount  < 0):
+#         raise NegativeBalanceError(balance + invested_amount)
 
-    # return IsaAllowance(
-    #     annual_allowance=annual_isa_allowance,
-    #     remaining_allowance=max(0, annual_isa_allowance - total_contributions)
-    # )
+#     ##### Calculating Remaining Allowance #####
+#     account_type: AccountType = transaction.account.account_type
+#     calculator: BaseIsaCalculator = get_isa_account_calculator(account_type)
+#     # Code smell: variables are passed down too many times, refactor as a Calculator object
+#     total_contributions, flexible_contributions, remaining_lifetime_isa_allowance = calculator.update_total_contributions(total_contributions, flexible_contributions, transaction, remaining_lifetime_isa_allowance)
+#     balance += invested_amount
+
+# return IsaAllowance(
+#     annual_allowance=annual_isa_allowance,
+#     remaining_allowance=max(0, annual_isa_allowance - total_contributions)
+# )
 
 # def get_isa_account_calculator(account_type: AccountType) -> BaseIsaCalculator:
 #     calculator_cls = ISA_CALCULATOR_DISPATCHER.get(account_type)
 #     if calculator_cls is None:
 #         raise NotImplementedError(f"No calculator implemented for account type: {account_type}")
 #     return calculator_cls()
-    
+
 # class BaseIsaCalculator(ABC):
 #     @abstractmethod
 #     def update_total_contributions(

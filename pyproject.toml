@@ -5,7 +5,43 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "coverage>=7.10.4",
     "pydantic>=2.11.7",
-    "pytest>=8.4.1",
 ]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.10.4",
+    "deptry>=0.23.1",
+    "poethepoet>=0.37.0",
+    "pytest>=8.4.1",
+    "ruff>=0.12.9",
+    "vulture>=2.14",
+]
+
+[tool.poetry.requires-plugins]
+poethepoet = ">=0.35"
+
+[tool.poe.tasks.test]
+sequence = [
+    { cmd = "coverage run -m pytest ./tests" },
+    { cmd = "coverage report -m" }
+]
+
+[tool.poe.tasks.lint]
+sequence = [
+    { cmd = "uv run ruff format" },
+    { cmd = "uv run ruff check --fix" },
+    { cmd = "uv run vulture src --min-confidence 80"},
+    { cmd = "uv run deptry src"},
+]
+
+[tool.poe.tasks.all]
+sequence = ["lint", "test"]
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
