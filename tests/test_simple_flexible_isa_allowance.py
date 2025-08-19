@@ -7,6 +7,11 @@ from src.schema.isa_allowance import Account, AccountType, NegativeBalanceError,
 from src.service.isa_allowance import calculate_isa_allowance_for_account
 
 class TestIsaAllowanceCalculator(TestCase):
+    """ Key Rules:
+    - Annual limit: £20,000 (2024/25 tax year)
+    - Withdrawals restore contribution allowance (can re-contribute withdrawn amounts)
+    - Track net contributions vs. allowable contributions including restored amounts
+    """
 
     def setUp(self):
         self.account = Account(id=1, client_id=1, account_type=AccountType.Flexible_ISA)

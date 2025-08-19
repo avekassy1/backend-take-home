@@ -43,6 +43,7 @@ def calculate_isa_allowance_for_account(
         calculators[account_type].process_transaction(transaction)
     
     total_contributions = sum(calc.total_contributions for calc in calculators.values())
+    print("Total contributions: ", total_contributions)
 
     return IsaAllowance(
         annual_allowance=annual_isa_allowance,
@@ -65,6 +66,7 @@ class IsaAllowanceCalculator(ABC):
         
         self.update_contributions(transaction)
         self.balance += invested_amount
+        print(f"Calc's balance: {self.balance}\n")
 
     @abstractmethod
     def update_contributions(self, transaction: Transaction):
@@ -81,30 +83,35 @@ class NonFlexibleIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
         if transaction.amount > 0:
             self.total_contributions += transaction.amount
+        print(f"NON FLEXIBLE ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
 
 class FlexibleIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
         self.total_contributions += transaction.amount
         if transaction.amount > 0:
             self.flexible_contributions += transaction.amount
+        print(f"FLEXIBLE ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
 
 class FlexibleLifetimeIsaCalculator(IsaAllowanceCalculator):
     def update_contributions(self, transaction: Transaction):
         amount = transaction.amount
 
-        self.total_contributions += amount
         self.flexible_contributions += amount
         
         if amount > 0:
             # Investment
             allowed = min(transaction.amount, self.remaining_lifetime_isa_allowance)
             self.remaining_lifetime_isa_allowance -= allowed
+            self.total_contributions += allowed
         else:
             # Withdrawal
-            restored = min(abs(amount), self.INITIAL_LIFETIME_ALLOWANCE - self.remaining_lifetime_isa_allowance)
-            self.remaining_lifetime_isa_allowance += restored
+            non_tax_free_amount: Decimal = max(0, self.balance - self.INITIAL_LIFETIME_ALLOWANCE)
+            restored = min(abs(amount), self.INITIAL_LIFETIME_ALLOWANCE - self.remaining_lifetime_isa_allowance) - non_tax_free_amount
 
-        print(f"Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
+            self.remaining_lifetime_isa_allowance += restored
+            self.total_contributions -= restored
+
+        print(f"LIFETIME ISA. Total con: {self.total_contributions}, flexible con: {self.flexible_contributions}, remaining lisa: {self.remaining_lifetime_isa_allowance}")
 
 def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
     """

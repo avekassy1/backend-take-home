@@ -6,6 +6,11 @@ from src.schema.isa_allowance import Account, AccountType, Transaction
 from src.service.isa_allowance import calculate_isa_allowance_for_account
 
 class TestIsaAllowanceCalculator(TestCase):
+    """ Key Rules:
+    - Annual limit: £4,000 (2024/25 tax year)
+    - Separate allowance from regular ISA allowance
+    - Withdrawals restore contribution allowance (flexible behavior)
+    """
 
     def setUp(self):
         self.client_id = 1
@@ -24,11 +29,9 @@ class TestIsaAllowanceCalculator(TestCase):
     def test_simple_lifetime_isa_allowance_exhausted_then_reduced_back_below_limit(self):
         transactions = [
             Transaction(account=self.lifetime_account, amount=Decimal(5_000), transaction_date=dt.date(2024, 5, 5)),
-            # Increases remaining allowance from 16k to 17k as overall 3k was spent of the 4k allowance
             Transaction(account=self.lifetime_account, amount=Decimal(-2_000), transaction_date=dt.date(2024, 5, 6)), 
             Transaction(account=self.lifetime_account, amount=Decimal(1_500), transaction_date=dt.date(2024, 5, 7)), 
             Transaction(account=self.lifetime_account, amount=Decimal(-1_500), transaction_date=dt.date(2024, 5, 8)), 
-            
         ]
         allowance = calculate_isa_allowance_for_account(client_id=self.client_id, transactions=transactions, tax_year=2024)
         assert allowance.annual_allowance == Decimal(20_000)

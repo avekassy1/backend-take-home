@@ -6,6 +6,11 @@ from src.schema.isa_allowance import Account, AccountType, Transaction
 from src.service.isa_allowance import calculate_isa_allowance_for_account
 
 class TestIsaAllowanceCalculator(TestCase):
+    """ Key Rules:
+    - Annual limit: £20,000 (2024/25 tax year)
+    - Once withdrawn, contribution allowance is lost permanently
+    - Calculate remaining allowance based on total contributions in tax year
+    """
 
     def setUp(self):
         self.account = Account(id=1, client_id=1, account_type=AccountType.ISA)

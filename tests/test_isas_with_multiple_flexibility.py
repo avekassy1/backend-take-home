@@ -20,8 +20,8 @@ class TestIsaAllowanceCalculator(TestCase):
         transactions = [
             Transaction(account=self.flex_account, amount=Decimal(10_000), transaction_date=dt.date(2024, 4, 26)),
             Transaction(account=self.nonflex_account, amount=Decimal(5_000), transaction_date=dt.date(2024, 4, 27)), # Transaction with unordered date
-            Transaction(account=self.flex_account, amount=Decimal(-3_000), transaction_date=dt.date(2024, 4, 28)), # Restores allowance
             Transaction(account=self.flex_account, amount=Decimal(-4_000), transaction_date=dt.date(2024, 5, 11)), # Restores allowance
+            Transaction(account=self.flex_account, amount=Decimal(-3_000), transaction_date=dt.date(2024, 4, 28)), # Restores allowance
             Transaction(account=self.nonflex_account, amount=Decimal(-5_000), transaction_date=dt.date(2024, 5, 10)), # Does not affect allowance
         ]
         allowance = calculate_isa_allowance_for_account(client_id=self.client_id, transactions=transactions, tax_year=2024)
