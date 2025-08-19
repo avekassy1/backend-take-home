@@ -143,6 +143,13 @@ ISA_CALCULATOR_DISPATCHER = {
     AccountType.Flexible_Lifetime_ISA: FlexibleLifetimeIsaCalculator,
 }
 
+
+
+#################### CODE CEMETARY ####################
+""" NOTE fore reviewer
+Left this in case we'd like to discuss design choices and how I refactored the code as the requirements become more complex
+"""
+
     # balance: Decimal = 0
     # total_contributions: Decimal = 0
     # flexible_contributions: Decimal = 0
@@ -164,7 +171,6 @@ ISA_CALCULATOR_DISPATCHER = {
     #     remaining_allowance=max(0, annual_isa_allowance - total_contributions)
     # )
 
-# TODO - write test for NotImplementedError
 # def get_isa_account_calculator(account_type: AccountType) -> BaseIsaCalculator:
 #     calculator_cls = ISA_CALCULATOR_DISPATCHER.get(account_type)
 #     if calculator_cls is None:
