@@ -23,9 +23,13 @@ class TestIsaAllowanceCalculator(TestCase):
 
     def test_simple_lifetime_isa_allowance_exhausted_then_reduced_back_below_limit(self):
         transactions = [
-            Transaction(account=self.lifetime_account, amount=Decimal(5_500), transaction_date=dt.date(2024, 5, 5)),
-            Transaction(account=self.lifetime_account, amount=Decimal(-2_000), transaction_date=dt.date(2024, 5, 6)),
+            Transaction(account=self.lifetime_account, amount=Decimal(5_000), transaction_date=dt.date(2024, 5, 5)),
+            # Increases remaining allowance from 16k to 17k as overall 3k was spent of the 4k allowance
+            Transaction(account=self.lifetime_account, amount=Decimal(-2_000), transaction_date=dt.date(2024, 5, 6)), 
+            Transaction(account=self.lifetime_account, amount=Decimal(1_500), transaction_date=dt.date(2024, 5, 7)), 
+            Transaction(account=self.lifetime_account, amount=Decimal(-1_500), transaction_date=dt.date(2024, 5, 8)), 
+            
         ]
         allowance = calculate_isa_allowance_for_account(client_id=self.client_id, transactions=transactions, tax_year=2024)
         assert allowance.annual_allowance == Decimal(20_000)
-        assert allowance.remaining_allowance == Decimal(16_500)
+        assert allowance.remaining_allowance == Decimal(17_000)
