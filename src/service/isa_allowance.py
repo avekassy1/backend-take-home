@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import List, Dict
 from decimal import Decimal
 from datetime import date
@@ -25,6 +26,7 @@ def calculate_isa_allowance_for_account(
     annual_isa_allowance: Decimal = isa_limits.get(AccountType.ISA)
     # annual_lifetime_isa_allowance - will come at Step 4
     
+    # TODO - extract filtering to function
     client_transactions = [
         txn for txn in transactions
         if (TY_START_DATE < txn.transaction_date < TY_END_DATE 
@@ -37,22 +39,14 @@ def calculate_isa_allowance_for_account(
 
     for transaction in client_transactions:
         invested_amount: Decimal = transaction.amount
-        account_type: AccountType = transaction.account.account_type
 
         if (balance + invested_amount  < 0):
             raise NegativeBalanceError(balance + invested_amount)
-            
+        
         ##### Calculating Remaining Allowance #####
-        # TODO: replace if-else cavalcade with factory pattern - what if new AccountType is added
-        match account_type:
-            case AccountType.ISA:
-                if (invested_amount > 0):
-                    total_contributions += invested_amount
-            case AccountType.Flexible_ISA:
-                total_contributions += invested_amount
-            case AccountType.Flexible_Lifetime_ISA:
-                raise NotImplementedError
-
+        account_type: AccountType = transaction.account.account_type
+        calculator: BaseIsaCalculator = get_isa_account_calculator(account_type)
+        total_contributions = calculator.update_total_contributions(total_contributions, transaction)
         balance += invested_amount
 
     return IsaAllowance(
@@ -75,3 +69,39 @@ def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
         }
     else:
         raise NotImplementedError(f"ISA limits not defined for the tax year: {tax_year}")
+    
+class BaseIsaCalculator(ABC):
+    @abstractmethod
+    def update_total_contributions(self, total_contributions, transaction):
+        pass
+
+class NonFlexibleIsaCalculator(BaseIsaCalculator):
+    def update_total_contributions(self, total_contributions, transaction):
+        # Only positive amounts count towards the allowance for non-flexible
+        if transaction.amount > 0:
+            return total_contributions + transaction.amount
+        return total_contributions
+
+class FlexibleIsaCalculator(BaseIsaCalculator):
+    def update_total_contributions(self, total_contributions, transaction):
+        # All amounts (positive or negative) affect the allowance for flexible
+        return total_contributions + transaction.amount
+
+class FlexibleLifetimeIsaCalculator(BaseIsaCalculator):
+    def update_total_contributions(self, total_contributions, transaction):
+        raise NotImplementedError("Flexible Lifetime ISA behavior not implemented yet.")
+
+# Dispatcher is easily extendible with new account types and corresponding IsaCalculators
+ISA_CALCULATOR_DISPATCHER = {
+    AccountType.ISA: NonFlexibleIsaCalculator,
+    AccountType.Flexible_ISA: FlexibleIsaCalculator,
+    AccountType.Flexible_Lifetime_ISA: FlexibleLifetimeIsaCalculator,
+}
+
+# TODO - write test for NotImplementedError
+# TODO - monitor test coverage
+def get_isa_account_calculator(account_type: AccountType) -> BaseIsaCalculator:
+    calculator_cls = ISA_CALCULATOR_DISPATCHER.get(account_type)
+    if calculator_cls is None:
+        raise NotImplementedError(f"No calculator implemented for account type: {account_type}")
+    return calculator_cls()
