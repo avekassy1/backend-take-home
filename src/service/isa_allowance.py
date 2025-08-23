@@ -32,17 +32,37 @@ def calculate_isa_allowance_for_account(
         client_id, transactions, TAX_YEAR_START_DATE, TAX_YEAR_END_DATE
     )
 
-    isa_limits: IsaLimitMapping = get_isa_limits_for_tax_year(tax_year)
-    annual_isa_allowance: Decimal = isa_limits.get(AccountType.ISA)
+    isa_limits_annual: IsaLimitMapping = get_isa_limits_for_tax_year(tax_year)
+    isa_limits_remaining: IsaLimitMapping = get_isa_limits_for_tax_year(tax_year)
+    annual_isa_allowance: Decimal = max(isa_limits_annual.values())
 
     calculators: Dict[AccountType, IsaAllowanceCalculator] = {}
 
     for transaction in client_transactions:
         account_type = transaction.account.account_type
         if account_type not in calculators:
-            add_calculator_with_isa_limits(isa_limits, calculators, account_type)
+            add_calculator_with_isa_limits(isa_limits_annual, calculators, account_type)
 
         calculators[account_type].process_transaction(transaction)
+
+        # TODO - update remaining isa limits across calculators
+        max_limit = 0
+        for key in isa_limits_remaining.keys():
+            new_remaining_allownace = (
+                isa_limits_remaining[key]
+                - calculators[account_type].latest_contribution
+            )
+            max_limit = max(max_limit, new_remaining_allownace)
+
+            if calculators[account_type].latest_contribution < 0:
+                isa_limits_remaining[key] = min(max_limit, isa_limits_annual[key])
+            else:
+                isa_limits_remaining[key] = new_remaining_allownace
+
+        logger.info(
+            f"Maxlim: {max_limit}. Remaining allowances across calcs:\n{isa_limits_remaining}\n"
+        )
+        # calculators[account_type].latest_contribution
 
     total_used_allowances = sum(
         calc.total_contributions for calc in calculators.values()
@@ -61,9 +81,9 @@ def perform_transaction_validation_and_filtering(
     client_id, transactions, TAX_YEAR_START_DATE, TAX_YEAR_END_DATE
 ):
     if not all(isinstance(t, Transaction) for t in transactions):
-        raise TypeError(
+        raise TypeError(  # TODO - write test covering error
             "Transaction list contains invalid objects"
-        )  # TODO - write test covering error
+        )
     client_transactions = filter_transactions_by_tax_year_and_client_id(
         client_id, transactions, TAX_YEAR_START_DATE, TAX_YEAR_END_DATE
     )
@@ -74,11 +94,13 @@ def perform_transaction_validation_and_filtering(
 class IsaAllowanceCalculator(ABC):
     def __init__(self, isa_limits: IsaLimitMapping):
         self.total_contributions = Decimal(0)
+        self.latest_contribution = Decimal(0)
         self.balance = Decimal(0)
 
         # TODO - synchronise limits across calculators
         # self.isa_limits: IsaLimitMapping = isa_limits
         # self.isa_usage: IsaLimitMapping = isa_limits  # set all values to zero
+        # Create
 
         self.annual_isa_allowance = isa_limits.get(AccountType.ISA)
         self.INITIAL_LIFETIME_ALLOWANCE = isa_limits.get(
@@ -92,11 +114,13 @@ class IsaAllowanceCalculator(ABC):
             raise NegativeBalanceError(self.balance + invested_amount)
 
         self.update_contributions(transaction)
-        logger.info(f"Calc's balance: {self.balance}\n")
+        logger.info(
+            f"Calc's balance: {self.balance}, latest contribution: {self.latest_contribution}\n"
+        )
 
     # TODO - write declarators and getters
-    def setBalance(self, newBalance):
-        self.balance = newBalance
+    # def setBalance(self, newBalance):
+    #     self.balance = newBalance
 
     @abstractmethod
     def update_contributions(self, transaction: Transaction):
@@ -108,9 +132,11 @@ class NonFlexibleIsaCalculator(IsaAllowanceCalculator):
         self.balance += transaction.amount
         if transaction.amount > 0:
             self.total_contributions += transaction.amount
-        print(
+            self.latest_contribution = transaction.amount
+        logger.info(
             f"NON FLEXIBLE ISA. Allowance usage: {self.total_contributions}, "
-            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            # f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            f"latest contribution: {self.latest_contribution}, "
         )
 
 
@@ -118,10 +144,12 @@ class FlexibleIsaCalculator(IsaAllowanceCalculator):
     # Should be updated the same way as FlexibleLifetimeIsaCalculator but with different limits -> polymorphism
     def update_contributions(self, transaction: Transaction):
         self.total_contributions += transaction.amount
+        self.latest_contribution = transaction.amount
         self.balance += transaction.amount
         logger.info(
             f"FLEXIBLE ISA. Allowance usage: {self.total_contributions}, "
-            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            # f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            f"latest contribution: {self.latest_contribution}, "
         )
 
 
@@ -132,19 +160,25 @@ class FlexibleLifetimeIsaCalculator(IsaAllowanceCalculator):
         if transaction.amount > 0:
             # Investment
             allowed = min(transaction.amount, self.remaining_lifetime_isa_allowance)
-            self.remaining_lifetime_isa_allowance -= allowed
+            self.remaining_lifetime_isa_allowance -= (
+                allowed  # to be replaced w state update
+            )
             self.total_contributions += allowed
+            self.latest_contribution = allowed
         else:
-            # Withdrawal : -1k
+            # Withdrawal
             if self.balance < self.INITIAL_LIFETIME_ALLOWANCE:
                 self.total_contributions = self.balance
+                self.latest_contribution = self.balance
+                # to be replaced w state update
                 self.remaining_lifetime_isa_allowance = (
                     self.INITIAL_LIFETIME_ALLOWANCE - self.balance
                 )
 
         logger.info(
             f"LIFETIME ISA. Allowance usage: {self.total_contributions}, "
-            f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            # f"remaining lisa: {self.remaining_lifetime_isa_allowance}, "
+            f"latest contribution: {self.latest_contribution}, "
         )
 
 
@@ -158,7 +192,7 @@ def get_isa_limits_for_tax_year(tax_year: int) -> IsaLimitMapping:
             AccountType.Flexible_ISA: Decimal("20_000.00"),
             AccountType.ISA: Decimal("20_000.00"),
             AccountType.Flexible_Lifetime_ISA: Decimal("4_000.00"),
-            AccountType.Custom_ISA: Decimal("8_000"),
+            # AccountType.Custom_ISA: Decimal("8_000"),
         }
     else:
         raise NotImplementedError(

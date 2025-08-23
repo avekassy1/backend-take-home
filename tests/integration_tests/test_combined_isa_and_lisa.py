@@ -137,3 +137,26 @@ class TestIsaAllowanceCalculator(TestCase):
         assert allowance.remaining_allowance == Decimal(1_000)
 
     # Create a test where not having the lifetime isa synchronised creates a problem
+    def test_flex_isa_blocking_lifetime_allowance(self):
+        transactions = [
+            Transaction(
+                account=self.flex_account,
+                amount=Decimal(19_000),
+                transaction_date=dt.date(2024, 4, 26),
+            ),
+            Transaction(
+                account=self.lifetime_account,
+                amount=Decimal(3_000),
+                transaction_date=dt.date(2024, 4, 27),
+            ),
+            Transaction(
+                account=self.flex_account,
+                amount=Decimal(-8_000),
+                transaction_date=dt.date(2024, 4, 28),
+            ),
+        ]
+        allowance = calculate_isa_allowance_for_account(
+            client_id=self.client_id, transactions=transactions, tax_year=2024
+        )
+        assert allowance.annual_allowance == Decimal(20_000)
+        assert allowance.remaining_allowance == Decimal(6_000)
